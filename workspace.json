@@ -2,11 +2,25 @@
   "說明": "工作架構的設定。scripts/ws.py 照這個檔案運作。技能的主版本在 skills.path；建立完整／已登記專案用 python scripts/ws.py new project；只在 work 開專案不登記此檔。",
   "harness": {
     "path": "docs/harness",
-    "version": "1.15.0"
+    "version": "1.16.0"
   },
   "skills": {
     "path": "skills",
     "說明": "技能的主版本：skills/<代號>/。專案的慣例放 skills/<代號>/profiles/<專案>/（範本在 profile.example/）。.claude/skills/ 和 .agents/skills/ 是 ws.py install 複製出來的副本。"
+  },
+  "knowledge": {
+    "說明": "知識庫是另一個 repo。ws.py kb link <網址> 會把 repo 記在這裡並下載到 path（預設 knowledge/llm-wiki，已被 .gitignore 排除）；path 也可以是 repo 外面的資料夾（絕對路徑或相對於這裡）。cli 在 path 裡執行，ws.py kb 會把參數接在後面；check 是 ws.py check 要跑的知識庫檢查。repo 留空表示還沒串聯。",
+    "type": "llm-wiki",
+    "repo": "https://github.com/warren3dtw/knowledge-framework",
+    "path": "knowledge/llm-wiki",
+    "entry": "AGENTS.md",
+    "cli": [
+      "python",
+      "scripts/wiki.py"
+    ],
+    "check": [
+      "lint"
+    ]
   },
   "work_layout": {
     "說明": "work/<專案>/ 只放檔案，分三層。流程、規則、文件都放 docs/，不放這裡。",

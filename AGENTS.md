@@ -1,10 +1,11 @@
 # 給所有 agent 的入口
 
-這個 repo 是一套給 AI agent 用的工作架構，分三個區，用 git 管理：
+這個 repo 是一套給 AI agent 用的工作架構，分三個區，用 git 管理；知識庫是另一個 repo，可以串聯進來：
 
 | 區 | 位置 | 放什麼 |
 |---|---|---|
 | 技能區 | `workspace.json` 的 `skills.path`（目前是 [`skills/`](skills/README.md)） | 技能的主版本：`skills/<代號>/`，專案的慣例放 `skills/<代號>/profiles/<專案>/` |
+| 知識庫（選用） | `workspace.json` 的 `knowledge`：另一個 repo，下載到 `knowledge.path`（預設 `knowledge/llm-wiki/`，不進這個 repo 的 git） | 知識、筆記、技能的來源；入口是知識庫自己的 `AGENTS.md` |
 | 工作區 | `work/<專案>/` | 只放檔案，分三層：`raw/<類型>/` 輸入（唯讀）、`working/<日期_內容>/<類型>/` 儲存、`output/<日期_內容>/` 輸出（例如 `20261117_木結構圖繪製`） |
 | 文件區 | `docs/harness/`、`docs/projects/<專案>/` | 所有流程、規則、文件：共用的流程規則（harness）；每個專案的 PROJECT（事實和成果）、LOG（變更、交付、問題）和計畫 |
 
@@ -16,11 +17,13 @@
 2. 確認這次是哪個專案，讀 `docs/projects/<專案>/README.md`、`PROJECT.md` 和 `LOG.md` 的「未解決」。`archive/` 平常不用讀。
 3. 讀共用規則 [`docs/harness/DEVELOPMENT.md`](docs/harness/DEVELOPMENT.md)，再依專案的模式讀 `docs/harness/modes/<模式>/`。
 4. 要用或改技能：讀 [`skills/README.md`](skills/README.md)，`python scripts/ws.py skills` 看安裝狀態。
+5. 要查知識或改知識庫：`python scripts/ws.py kb status` 確認有沒有串聯；有的話讀知識庫的入口 `knowledge/llm-wiki/AGENTS.md`（位置以 `workspace.json` 的 `knowledge.path` 為準），指令用 `python scripts/ws.py kb <參數>`。沒有串聯時先問使用者知識庫的 repo 網址，不自己猜。
 
 | 你要做的事 | 讀這個 |
 |---|---|
 | 做專案的工作（建模、出圖、動畫） | 專案的 README、PROJECT，加上 [`docs/harness/`](docs/harness/README.md) |
 | 新增技能、改進技能 | [`skills/README.md`](skills/README.md) |
+| 串聯知識庫、查知識、從知識庫取技能 | 這份的「串聯知識庫」，再讀知識庫的 `AGENTS.md` |
 | 改流程規則 | `docs/harness/`，並記 [FEEDBACK](docs/harness/FEEDBACK.md)、[CHANGELOG](docs/harness/CHANGELOG.md) |
 | 把專案的經驗整合回技能和流程規則（排程或手動） | [`docs/harness/roles/experience-curator.md`](docs/harness/roles/experience-curator.md) |
 | 在 `work` 開新專案 | 只建立 `work/<名稱>/raw/`、`working/`、`output/` 三個空資料夾，不建立文件、不登記 `workspace.json`；有給檔案路徑就用 `ws.py file` 複製進 `raw/` |
@@ -42,6 +45,7 @@
 - 案件資料要不要進 git，第一次加入前先問；答案記在 PROJECT，不進 git 的路徑寫進根目錄的 `.gitignore`。
 - 整個任務完成而且 `python scripts/ws.py check` 通過才 commit，只納入這次的變更，不自動 push。一律在 `main` 上工作，不開分支。唯一的例外是雲端工作階段：在它指定的分支 commit 並 push 到該分支，不動 `main`（見 DEVELOPMENT 的「雲端工作階段」）。
 - 技能只改主版本（`skills/<代號>/`）。`.claude/skills/`（Claude Code）和 `.agents/skills/`（Codex）是程式安裝出來的副本，不手改；改完主版本用 `python scripts/ws.py install <代號>` 兩邊同時更新，`ws.py check` 會檢查兩邊一模一樣。工作中發現技能的問題，先記在專案的 LOG，不必當場改。
+- 知識庫的改動在知識庫的 repo commit，不 commit 進這個 repo。
 - 技能和筆記不是設計依據。實際設計以現行規範原文和專業簽證為準。
 
 ## 依模式的重點
@@ -53,18 +57,31 @@
 - **繪圖（drawing）**：先確認 Rhino 實例、文件和工具行為，讀 `docs/harness/modes/drawing/`。草圖 → Rhino → DWG → CADCraft → PDF，每個階段存檔並記來源版本。草圖一定要貼進 Rhino 校正比例，立面向使用者確認，以規則重建比對殘差、不逐線描（DRAWING 的 D1）。用 CADCraft 出 PDF 照 CADCRAFT-PLOT：預設 STD 樣式和 NEW.ctb、引線一律用多重引線、全彩物件疊印保留顏色、出圖後跑文字碰撞檢查 0 處才通過。
 - **動畫（animation）**：操作 Rhino 前定位實例和文件並核對工具 schema，讀 `docs/harness/modes/animation/`。普通 Rhino group 作組裝單元，重疊或跨樓層要先釐清；先編號，使用者核准後才匯出；鋼木相依只提建議。逐格以絕對幀數計算，保持 GUID／單元對應、組內剛性和終態。JSON／GLB／設定／影片同修訂並記 SHA256，bundle 不等於影片。順序審查用預覽，沒要求不輸出影片。
 
+## 串聯知識庫
+
+工作架構和知識庫是兩個 repo，各自下載、各自 commit。工作架構只在 `workspace.json` 的 `knowledge` 記知識庫的網址（`repo`）和本機位置（`path`），知識庫的內容不進這個 repo。
+
+1. 串聯：`python scripts/ws.py kb link <知識庫 repo 網址>`，下載到 `knowledge/llm-wiki/`；知識庫已經在本機別的地方時，用 `python scripts/ws.py kb link <那個資料夾>`。
+2. 換電腦：clone 工作架構後跑一次 `python scripts/ws.py kb link`，照 `workspace.json` 記的網址重新下載。
+3. 更新：`python scripts/ws.py kb pull`；狀態：`python scripts/ws.py kb status`。
+4. 從知識庫取技能：`python scripts/ws.py kb skill <代號> --bare`（或 `--profile <專案主題>`、`--public`），輸出到 `skills/<代號>/` 並裝到兩邊。專案裡改進了，`python scripts/ws.py kb ingest-skill <代號>` 帶回知識庫的 `incoming/`，在知識庫那邊照它的 MAINTAINING 合併、升版、commit，再 `kb skill` 重新取回來。
+5. `ws.py check` 在有串聯時順便跑知識庫的檢查；沒串聯或還沒下載只會提示，不算錯誤。
+
 ## 指令
 
 全部只用 Python 標準庫。Windows 上把 `python` 換成 `py`。
 
 ```bash
 python scripts/ws.py status                                   # 進行中的計畫和下一步
-python scripts/ws.py check                                    # 檢查工作架構和技能
+python scripts/ws.py check                                    # 檢查工作架構和技能；有串知識庫時順便跑知識庫的檢查
 python scripts/ws.py new plan <專案> <英文名稱> --title "標題"   # 開新計畫
 python scripts/ws.py new project <代號> --mode drawing,animation --title "標題"   # 建立完整／已登記專案
 python scripts/ws.py file <專案> <檔案...>                     # 把使用者給的檔案依類型放進 raw/，印出 SHA256
 python scripts/ws.py skills                                   # 已安裝的技能和主版本的比較
 python scripts/ws.py mem --need 4                             # 大型工作前查記憶體；退出碼不是 0 就停下來告訴使用者
 python scripts/ws.py new skill rhino-004-roof-panels         # 從範本建立新技能
+python scripts/ws.py kb link <知識庫 repo 網址>                # 串聯知識庫（下載到 knowledge/llm-wiki/）
+python scripts/ws.py kb query search 搭接                      # 在知識庫查詢（後面的參數照知識庫自己的指令）
+python scripts/ws.py kb skill <代號> --bare                    # 從知識庫取技能到 skills/ 並安裝
 python scripts/ws.py install rhino-002-sequence-fasteners --profile <專案>   # 從 skills/ 安裝或更新技能（Claude 和 Codex 兩邊同時）；--all 全部
 ```

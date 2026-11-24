@@ -4,7 +4,13 @@
 用法：python scripts/ws.py <指令> [參數]
 
   status                                 進行中的計畫和下一步（續作時先跑這個）
-  check                                  檢查工作架構：設定、專案資料夾、計畫、連結、技能
+  check [--no-kb]                        檢查工作架構：設定、專案資料夾、計畫、連結、技能；有串知識庫時再跑知識庫的檢查
+  kb link [<repo 網址或資料夾>] [--path P] 串聯知識庫：記進 workspace.json，本機沒有就 git clone 到 knowledge.path
+  kb pull | kb status                    更新知識庫（git pull --ff-only）／看串聯狀態
+  kb skill <代號> --bare | --profile <專案主題> | --public [--draft] [--force]
+                                         從知識庫輸出技能到 skills/<代號>/，再安裝到兩邊
+  kb ingest-skill <代號>                  把 skills/<代號>/ 的改動帶回知識庫（放到知識庫的 incoming/，不自動合併）
+  kb <參數...>                            其他參數直接交給知識庫自己的指令，例如 ws.py kb query search 搭接
   new project <代號> --mode drawing[,animation] [--title 標題]   建立完整／已登記專案：docs/projects/<代號>/ 和 work/<代號>/
   new plan <專案> <英文名稱> [--title 標題]                       在專案底下開新計畫
   install <代號>|--all [--profile <專案>] [--force]
@@ -17,8 +23,9 @@
                                          把檔案依副檔名放進 work/<專案>/raw/<類型>/（預設複製），印出 SHA256；
                                          --to working 時 --sub 必填，是「日期_內容」資料夾，放進 working/<日期_內容>/<類型>/
 
-四個區：
+四個區，加上可以串聯的知識庫：
   技能區  workspace.json 的 skills.path（目前是 skills/）：技能的主版本
+  知識庫  另一個 repo，下載到 workspace.json 的 knowledge.path（預設 knowledge/llm-wiki，不進這個 repo 的 git）
   工作區  work/<專案>/：raw/<類型>/ 輸入、working/<日期_內容>/<類型>/ 儲存、output/<日期_內容>/ 輸出；只放檔案
   文件區  docs/harness/ 共用的流程規則；docs/projects/<專案>/ 專案的事實、紀錄和計畫
 """
@@ -403,6 +410,18 @@ def cmd_check(args):
         for n in notes[:8]:
             print(f"    - {n}")
     code = 1 if errors else 0
+    kb = kb_root(cfg)
+    if not kb or (not (cfg.get("knowledge") or {}).get("repo") and not kb.is_dir()):
+        kb = None
+        print("  知識庫：沒有串聯（要串：python scripts/ws.py kb link <知識庫 repo 網址>）")
+    elif not (kb / cfg["knowledge"].get("entry", "AGENTS.md")).exists():
+        print(f"  知識庫：workspace.json 指到 {cfg['knowledge']['path']}，但本機還沒有下載（python scripts/ws.py kb link）")
+    elif "--no-kb" not in args and cfg["knowledge"].get("cli"):
+        for step in cfg["knowledge"].get("check", []):
+            print(f"\n== 知識庫：{' '.join(cfg['knowledge']['cli'] + [step])}")
+            r = run_kb(cfg, [step], capture=True)
+            print("\n".join((r.stdout + r.stderr).strip().splitlines()[-3:]))
+            code = code or r.returncode
     print(f"\n共 {len(errors)} 個錯誤，{len(warnings)} 個提醒")
     sys.exit(code)
 
@@ -477,7 +496,8 @@ def skill_version(folder):
 def files_of(folder):
     import hashlib
     return {p.relative_to(folder).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(folder.rglob("*")) if p.is_file() and p.name != MARK and "__pycache__" not in p.parts}
+            for p in sorted(folder.rglob("*")) if p.is_file() and p.name not in (MARK, KB_MARK)
+            and "__pycache__" not in p.parts}
 
 
 def install_one(cfg, sid, profile, force):
@@ -500,7 +520,7 @@ def install_one(cfg, sid, profile, force):
         if dest.exists():
             shutil.rmtree(dest)
         shutil.copytree(src, dest, ignore=lambda d, names: [n for n in names if n in SKIP_INSTALL
-                                                            and Path(d) == src or n == "__pycache__"])
+                                                            and Path(d) == src or n in ("__pycache__", KB_MARK)])
         if profile:
             shutil.copytree(src / "profiles" / profile, dest / "profile")
         (dest / MARK).write_text(json.dumps({"skill": sid, "version": version, "profile": profile or "",
@@ -551,7 +571,8 @@ def skill_report(cfg, warnings, quiet=False):
             else:
                 current = skill_version(src)
                 expect = {k: v for k, v in files_of(src).items() if k.split("/")[0] not in SKIP_INSTALL}
-                got = {k: v for k, v in info.get("files", {}).items() if k.split("/")[0] != "profile"}
+                got = {k: v for k, v in info.get("files", {}).items()
+                       if not (info.get("profile") and k.split("/")[0] == "profile")}
                 if current != info.get("version") or expect != got:
                     state.append(f"主版本已更新（{current}）")
                     warnings.append(f"{rel}（{info.get('version')}）和主版本 skills/{folder.name}/（{current}）的內容不同；ws.py install {folder.name}")
@@ -581,6 +602,218 @@ def new_skill(cfg, sid):
         f.write_text(f.read_text(encoding="utf-8").replace("<代號>", sid)
                      .replace("<日期>", datetime.date.today().isoformat()), encoding="utf-8")
     print(f"已建立 skills/{sid}/。寫好 SKILL.md、tests.md 後用 python scripts/ws.py install {sid} 安裝到兩邊。")
+
+
+# ---------------- 知識庫（另一個 repo）----------------
+KB_MARK = ".wiki-source"   # 從知識庫輸出的技能，在 skills/<代號>/ 記版本、模式、知識庫 commit 和檔案雜湊（格式和知識庫的 install 相同）
+
+
+def kb_root(cfg):
+    """知識庫在本機的位置；workspace.json 沒有 knowledge 或 path 是空的回傳 None。"""
+    k = cfg.get("knowledge") or {}
+    if not k.get("path"):
+        return None
+    path = Path(k["path"]).expanduser()
+    return path if path.is_absolute() else ROOT / path
+
+
+def run_kb(cfg, args, capture=False):
+    kb = kb_root(cfg)
+    if not kb or not kb.is_dir():
+        sys.exit("還沒有串聯知識庫：python scripts/ws.py kb link <知識庫 repo 網址>")
+    cli = list(cfg["knowledge"].get("cli") or [])
+    if not cli:
+        sys.exit(f"知識庫（{cfg['knowledge'].get('type')}）沒有設定 cli，請直接讀 {cfg['knowledge']['path']}/{cfg['knowledge'].get('entry')}")
+    if cli[0] in ("python", "python3", "py"):
+        cli[0] = sys.executable
+    return subprocess.run(cli + list(args), cwd=kb, text=True, encoding="utf-8", capture_output=capture)
+
+
+def git(cwd, *args):
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def kb_link(cfg, args):
+    path = option(args, "--path")
+    target = args[0] if args else None
+    k = cfg.setdefault("knowledge", {})
+    if target and Path(target).expanduser().is_dir():      # 已經在本機的知識庫資料夾
+        local = Path(target).expanduser().resolve()
+        try:
+            k["path"] = local.relative_to(ROOT).as_posix()
+        except ValueError:
+            k["path"] = str(local)
+        code, url = git(local, "remote", "get-url", "origin")
+        if code == 0:
+            k["repo"] = url
+    else:
+        if target:
+            k["repo"] = target
+        if path:
+            k["path"] = path
+    k.setdefault("path", "knowledge/llm-wiki")
+    if not k.get("repo") and not kb_root(cfg).is_dir():
+        sys.exit("用法：ws.py kb link <知識庫 repo 網址 或 本機資料夾> [--path knowledge/llm-wiki]")
+    kb = kb_root(cfg)
+    if not kb.is_dir():
+        kb.parent.mkdir(parents=True, exist_ok=True)
+        print(f"下載知識庫 {k['repo']} → {k['path']}")
+        code, out = git(ROOT, "clone", k["repo"], str(kb))
+        if code != 0:
+            sys.exit(f"git clone 失敗：\n{out}")
+    if not (kb / k.get("entry", "AGENTS.md")).exists():
+        sys.exit(f"{k['path']} 沒有入口檔 {k.get('entry', 'AGENTS.md')}，不是知識庫")
+    save_config(cfg)
+    code, commit = git(kb, "rev-parse", "--short", "HEAD")
+    print(f"已串聯知識庫：{k['path']}（{k.get('repo') or '本機資料夾'}，commit {commit if code == 0 else '不明'}）")
+    ignored = git_ignored([Path(k["path"]).as_posix()]) if not Path(k["path"]).is_absolute() else {"外部"}
+    if not ignored:
+        print(f"提醒：{k['path']} 在這個 repo 裡但沒有被 .gitignore 排除，知識庫的內容可能被 commit 進工作架構")
+
+
+def kb_status(cfg):
+    kb = kb_root(cfg)
+    k = cfg.get("knowledge") or {}
+    if not kb:
+        print("沒有串聯知識庫。要串：python scripts/ws.py kb link <知識庫 repo 網址>")
+        return
+    print(f"知識庫：{k.get('type', '')}｜repo {k.get('repo') or '（沒填）'}｜位置 {k['path']}")
+    if not kb.is_dir():
+        print("  本機還沒有下載：python scripts/ws.py kb link")
+        return
+    for label, cmd in (("commit", ["log", "-1", "--format=%h %cs %s"]), ("分支", ["status", "-sb"])):
+        code, out = git(kb, *cmd)
+        print(f"  {label}：{out.splitlines()[0] if out else ''}")
+    code, out = git(kb, "status", "--porcelain")
+    print(f"  未 commit 的變更：{len(out.splitlines()) if out else 0} 個檔案")
+    for f in sorted(skills_root(cfg).glob(f"*/{KB_MARK}")):
+        m = json.loads(f.read_text(encoding="utf-8"))
+        print(f"  技能 skills/{f.parent.name}/ 來自知識庫 {m.get('version', '')}（{m.get('profile') or m.get('mode', '')}，知識庫 commit {m.get('wiki_commit', '')}）")
+
+
+def kb_skill(cfg, args):
+    if not args or args[0].startswith("--"):
+        sys.exit("用法：ws.py kb skill <代號> --bare | --profile <專案主題> | --public [--draft] [--force]")
+    sid = args.pop(0)
+    force = "--force" in args
+    args = [a for a in args if a != "--force"]
+    profile = None
+    if "--profile" in args:
+        profile = args[args.index("--profile") + 1]
+    mode = "public" if "--public" in args else "profile" if profile else "bare"
+    if mode == "bare" and "--bare" not in args:
+        args.append("--bare")
+    dest = skills_root(cfg) / sid
+    if dest.exists():
+        mark = dest / KB_MARK
+        if not mark.exists() and not force:
+            sys.exit(f"skills/{sid}/ 已經存在，而且不是從知識庫輸出的；加 --force 才覆蓋")
+        if mark.exists() and not force:
+            old = json.loads(mark.read_text(encoding="utf-8"))
+            if tree_with_profile(dest, old.get("profile")) != old.get("files", {}):
+                sys.exit(f"skills/{sid}/ 在輸出後被改過：先 python scripts/ws.py kb ingest-skill {sid} 帶回知識庫，或加 --force 覆蓋")
+    staging = ROOT / ".runtime" / "kb-export"
+    if staging.exists():
+        shutil.rmtree(staging)
+    r = run_kb(cfg, ["export", "skill", sid, *args, "--out", str(staging)], capture=True)
+    print((r.stdout + r.stderr).strip().splitlines()[0] if (r.stdout + r.stderr).strip() else "")
+    if r.returncode != 0:
+        print((r.stdout + r.stderr).strip())
+        sys.exit("知識庫沒有輸出這個技能")
+    out = staging / sid
+    files = files_of(out)
+    if profile and (out / "profile").is_dir():   # 知識庫輸出成 profile/；這裡的主版本放 profiles/<專案主題>/
+        (out / "profiles").mkdir()
+        shutil.move(str(out / "profile"), str(out / "profiles" / profile))
+    keep = {}
+    if dest.exists():
+        for name in ("profiles", "profile.example"):   # 這裡另外加的 profile 不要被蓋掉
+            if (dest / name).is_dir():
+                keep[name] = dest / name
+        tmp = staging / "_keep"
+        for name, folder in keep.items():
+            shutil.copytree(folder, tmp / name, dirs_exist_ok=True)
+        shutil.rmtree(dest)
+    shutil.copytree(out, dest)
+    for name in keep:
+        shutil.copytree(staging / "_keep" / name, dest / name, dirs_exist_ok=True)
+    _, commit = git(kb_root(cfg), "rev-parse", "--short", "HEAD")
+    version = skill_version(dest)
+    (dest / KB_MARK).write_text(json.dumps({
+        "skill": sid, "version": version, "mode": mode, "profile": profile or "", "wiki_commit": commit,
+        "installed": datetime.date.today().isoformat(), "files": files}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    shutil.rmtree(staging)
+    print(f"已從知識庫輸出到 skills/{sid}/")
+    install_one(cfg, sid, profile, force=True)
+
+
+def tree_with_profile(folder, profile):
+    """skills/<代號>/ 換回知識庫輸出時的樣子（profiles/<專案主題>/ → profile/），用來和輸出紀錄比對。"""
+    out = {}
+    for rel, digest in files_of(folder).items():
+        if profile and rel.startswith(f"profiles/{profile}/"):
+            out["profile/" + rel[len(f"profiles/{profile}/"):]] = digest
+        elif rel.split("/")[0] in ("profiles", "profile.example"):
+            continue
+        else:
+            out[rel] = digest
+    return out
+
+
+def kb_ingest_skill(cfg, args):
+    if not args:
+        sys.exit("用法：ws.py kb ingest-skill <代號>")
+    sid = args[0]
+    src = skills_root(cfg) / sid
+    mark = src / KB_MARK
+    staging = ROOT / ".runtime" / "kb-ingest" / ROOT.name / sid   # 知識庫用上一層資料夾的名稱當來源專案
+    if staging.parent.exists():
+        shutil.rmtree(staging.parent)
+    staging.mkdir(parents=True)
+    profile = json.loads(mark.read_text(encoding="utf-8")).get("profile") if mark.exists() else None
+    for path in sorted(src.rglob("*")):
+        rel = path.relative_to(src).as_posix()
+        if not path.is_file() or "__pycache__" in rel:
+            continue
+        if profile and rel.startswith(f"profiles/{profile}/"):
+            rel = "profile/" + rel[len(f"profiles/{profile}/"):]
+        elif rel.split("/")[0] in ("profiles", "profile.example") and mark.exists():
+            continue
+        (staging / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, staging / rel)
+    if not mark.exists():
+        print(f"skills/{sid}/ 不是從知識庫輸出的，會在知識庫建立新技能（draft）")
+    code = run_kb(cfg, ["ingest", "skill", str(staging), *args[1:]]).returncode
+    shutil.rmtree(staging.parent)
+    sys.exit(code)
+
+
+def cmd_kb(args):
+    cfg = config()
+    sub = args[0] if args else ""
+    if sub == "link":
+        return kb_link(cfg, args[1:])
+    if sub in ("pull", "update"):
+        kb = kb_root(cfg)
+        if not kb or not kb.is_dir():
+            sys.exit("還沒有串聯知識庫：python scripts/ws.py kb link <知識庫 repo 網址>")
+        code, out = git(kb, "pull", "--ff-only")
+        print(out)
+        sys.exit(code)
+    if sub in ("status", ""):
+        return kb_status(cfg)
+    if sub == "skill":
+        return kb_skill(cfg, args[1:])
+    if sub == "ingest-skill":
+        return kb_ingest_skill(cfg, args[1:])
+    # 其他參數交給知識庫；路徑參數（work/、docs/ 開頭）換成絕對路徑
+    fixed = []
+    for a in args:
+        p = ROOT / a
+        fixed.append(str(p) if (a.startswith((".", "work/", "docs/", "skills/")) and (p.exists() or a in (".", "./"))) else a)
+    sys.exit(run_kb(cfg, fixed).returncode)
 
 
 # ---------------- new ----------------
@@ -769,7 +1002,7 @@ def cmd_mem(args):
         sys.exit(2)
 
 
-COMMANDS = {"status": cmd_status, "file": cmd_file, "install": cmd_install, "check": cmd_check, "new": cmd_new, "skills": cmd_skills, "mem": cmd_mem}
+COMMANDS = {"status": cmd_status, "file": cmd_file, "install": cmd_install, "check": cmd_check, "kb": cmd_kb, "new": cmd_new, "skills": cmd_skills, "mem": cmd_mem}
 
 
 def main():

@@ -11,6 +11,9 @@ Thumbs.db
 build/
 .runtime/
 
+# 知識庫是另一個 repo，用 ws.py kb link 下載到這裡，不進這個 repo 的 git
+knowledge/
+
 # Rhino 的鎖定檔和自動備份
 *.3dmbak
 *.rhl
