@@ -1,0 +1,27 @@
+# 個人和本機設定
+.claude/settings.local.json
+.env
+.env.*
+!.env.example
+*.bak
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+build/
+.runtime/
+
+# Rhino 的鎖定檔和自動備份
+*.3dmbak
+*.rhl
+
+# 程式專案的依賴和暫存輸出
+node_modules/
+work/*/working/app/*/out/
+work/*/working/app/*/build/
+
+# ===== 案件資料不進 git（各專案的決定，記在專案的 PROJECT.md）=====
+# work/<專案>/ 分三層：raw/ 輸入、working/ 儲存、output/ 輸出。本機的檔案放哪裡見專案的 README。
+# 每個專案第一次加入案件資料前問使用者；決定不進 git 的路徑寫在這底下，例如：
+# work/<專案>/raw/*/
+# work/<專案>/output/*/

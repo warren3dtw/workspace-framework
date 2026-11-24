@@ -1,0 +1,7 @@
+# 技能的主版本和安裝出來的副本一律用 LF。
+# 安裝紀錄（.skill-source）記的是檔案內容的 SHA256；Windows 的 git 取出時把換行改成 CRLF，
+# 會讓每個技能都被判成「安裝後改過」。
+# 範圍只限這三個資料夾：work/ 和 docs/ 裡有記過 SHA256 的案件檔，不改它們的換行。
+skills/** text=auto eol=lf
+.claude/skills/** text=auto eol=lf
+.agents/skills/** text=auto eol=lf

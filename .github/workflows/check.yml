@@ -1,0 +1,24 @@
+name: check
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 檢查工作架構
+        run: python scripts/ws.py check
+      - name: 技能的單元測試（主版本 skills/）
+        run: |
+          for t in skills/*/scripts/test_*.py; do
+            [ -e "$t" ] || continue
+            head -3 "$t" | grep -q "需要外部軟體" && continue
+            (cd "$(dirname "$t")" && python -m unittest "$(basename "$t" .py)")
+          done
+      - name: hook 的單元測試
+        run: python -m unittest discover -s scripts/hooks -p "test_*.py"

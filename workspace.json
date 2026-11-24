@@ -1,0 +1,105 @@
+{
+  "說明": "工作架構的設定。scripts/ws.py 照這個檔案運作。技能的主版本在 skills.path；建立完整／已登記專案用 python scripts/ws.py new project；只在 work 開專案不登記此檔。",
+  "harness": {
+    "path": "docs/harness",
+    "version": "1.15.0"
+  },
+  "skills": {
+    "path": "skills",
+    "說明": "技能的主版本：skills/<代號>/。專案的慣例放 skills/<代號>/profiles/<專案>/（範本在 profile.example/）。.claude/skills/ 和 .agents/skills/ 是 ws.py install 複製出來的副本。"
+  },
+  "work_layout": {
+    "說明": "work/<專案>/ 只放檔案，分三層。流程、規則、文件都放 docs/，不放這裡。",
+    "raw": {
+      "說明": "輸入：使用者給的原始檔，唯讀，不修改。依檔案類型放進子資料夾，例如 raw/3dm/、raw/pdf/；同一類型可以再分子資料夾。"
+    },
+    "working": {
+      "說明": "儲存：工作中的檔案。工作模型、工作圖、交換資料、腳本、程式專案。第一層用「日期_內容」資料夾分批（例如 working/20261117_木結構圖繪製/），裡面再依類型放進子資料夾；程式專案放 working/app/<名稱>/。"
+    },
+    "output": {
+      "說明": "輸出：agent 產出、交給使用者的成果。一次交付一個資料夾，名稱用「日期_內容」（例如 output/20261117_木結構圖繪製/，再交付加 _v02），同一批的 DWG、PDF、JSON、GLB、影片放在一起，不混用版本；交付紀錄寫在專案的 LOG.md。"
+    },
+    "types": {
+      "3dm": [
+        ".3dm"
+      ],
+      "dwg": [
+        ".dwg",
+        ".dxf"
+      ],
+      "pdf": [
+        ".pdf"
+      ],
+      "image": [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".bmp",
+        ".gif",
+        ".webp",
+        ".heic"
+      ],
+      "ifc": [
+        ".ifc"
+      ],
+      "table": [
+        ".csv",
+        ".xlsx",
+        ".xls"
+      ],
+      "data": [
+        ".json",
+        ".jsonl",
+        ".glb",
+        ".gltf",
+        ".obj",
+        ".fbx"
+      ],
+      "video": [
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv"
+      ],
+      "doc": [
+        ".docx",
+        ".doc",
+        ".txt",
+        ".md"
+      ],
+      "script": [
+        ".py",
+        ".ps1",
+        ".js",
+        ".ts",
+        ".gh",
+        ".ghx"
+      ],
+      "other": []
+    },
+    "working_extra": {
+      "app": "程式專案（例如 Remotion），裡面照該程式自己的結構"
+    }
+  },
+  "modes": {
+    "general": {
+      "說明": "通用：只用共用規則",
+      "docs": []
+    },
+    "drawing": {
+      "說明": "Rhino 建模、2D 圖面、CADCraft 出 PDF",
+      "docs": [
+        "modes/drawing"
+      ]
+    },
+    "animation": {
+      "說明": "Rhino 模型編號、JSON／GLB、組裝動畫",
+      "docs": [
+        "modes/animation"
+      ]
+    }
+  },
+  "projects": []
+}
